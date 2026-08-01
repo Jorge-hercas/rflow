@@ -1,0 +1,32 @@
+Package: rflow
+Type: Package
+Title: A Native R Workflow Orchestrator Inspired by Apache Airflow
+Version: 0.1.0
+Authors@R: person("Jorge Valente", "Hernandez Castelan", email = "valentehcastelan@hotmail.com", role = c("aut", "cre"))
+Description: rflow is a lightweight, dependency-graph-based workflow orchestrator
+    written entirely in R, inspired by Apache Airflow. It lets you define DAGs
+    (Directed Acyclic Graphs) of tasks using idiomatic R (R6 objects, the
+    magrittr-style %>>% operator, and plain R functions as task bodies), execute
+    them sequentially or in parallel via the 'future' package, persist run/task
+    state to a SQLite metadata database exactly like Airflow's metadata DB, retry
+    failed tasks, template task parameters with execution-date macros, and inspect
+    everything through an interactive Shiny "webserver" UI with a DAG graph view,
+    Gantt chart, and task logs, all without leaving R or touching Python.
+License: MIT
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.3.1
+Depends: R (>= 4.0.0)
+Imports:
+    R6,
+    DBI,
+    RSQLite,
+    jsonlite,
+    future,
+    future.apply,
+    uuid,
+    digest
+Suggests:
+    shiny,
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3

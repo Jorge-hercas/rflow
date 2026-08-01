@@ -1,0 +1,16 @@
+# R build artifacts
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rcheck/
+*.tar.gz
+
+# rflow runtime artifacts (se crean al correr DAGs)
+rflow.db
+*.db
+/rflow.Rcheck/
+
+# OS / editor cruft
+.DS_Store
+.vscode/
