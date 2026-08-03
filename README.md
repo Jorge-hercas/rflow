@@ -8,7 +8,7 @@ This is not a Python wrapper via `reticulate`. Instead, i did a reimplementation
 
 ```r
 install.packages(c("R6", "DBI", "RSQLite", "jsonlite", "future", "future.apply", "uuid", "digest", "shiny"))
-install.packages("rflow_0.1.0.tar.gz", repos = NULL, type = "source")
+devtools::install_github("Jorge-hercas/rflow")
 ```
 
 ## Airflow equivalents
