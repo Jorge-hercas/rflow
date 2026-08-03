@@ -47,7 +47,7 @@ dag <- with_dag(DAG$new("etl_demo", schedule_interval = "@daily"), {
 })
 
 con <- rflow_db_connect("rflow.db")
-result <- run_dag(dag, con = con)           # sequential execution
+result <- run_dag(dag, con = con) # sequential execution
 result <- run_dag(dag, executor = "future") # parallel execution, layer by layer
 
 list_runs(con, "etl_demo")
