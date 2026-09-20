@@ -76,3 +76,8 @@ rflow_ui(dag, con = con)   # interactive dashboard (Shiny)
 - The scheduler (`scheduler_run()`) is a single-process R polling loop, not a distributed daemon with task queues like Airflow's real scheduler.
 - No authentication/RBAC in the dashboard (intended for local/internal use).
 - "Operators" are simply R functions; there are no providers/hooks for external services (S3, BigQuery, etc.) — but any R function (including calls to packages like `aws.s3`, `bigrquery`, `DBI`, `httr2`) works fine as a task's body.
+
+
+## Updates
+
+Check the most recent updates on [CHANGELOG](CHANGELOG.md).

@@ -1,46 +1,46 @@
 # Changelog
 
-## Lista de cambios
+## Changes
 
-### Bugs corregidos
+### Bug Fixes
 
-| # | Archivo(s) | Problema | Corrección |
+| # | File(s) | Issue | Fix |
 | --- | --- | --- | --- |
-| 1 | `R/utils.R`, `R/executor.R` | El templating `{{ ds }}` no se aplicaba correctamente a `op_args`. | Nueva función `rflow_render_args()` que renderiza recursivamente, considerando también listas anidadas, antes de ejecutar la tarea. |
-| 2 | `R/executor.R`, `R/task.R` | `timeout` se guardaba pero **nunca se hacía cumplir**. | Implementado con `setTimeLimit()`. Se documentó que no interrumpe `Sys.sleep()` ni llamadas bloqueantes de sistema o red, una limitación de R base. |
-| 3 | `R/scheduler.R` | Un error inesperado (por ejemplo, una base de datos caída) **mataba todo el loop** del scheduler. | `run_dag()` se envolvió en `tryCatch` por DAG y por tick; el loop sigue vivo y registra el error. |
-| 4 | `R/scheduler.R` | `catchup` Se referenciaba incorrectamente. | Nueva `.rflow_due_execution_dates()`: con `catchup = TRUE` dispara todos los intervalos perdidos; con `FALSE`, solo el más reciente. |
-| 5 | `R/dag.R` | `default_args` de la DAG **sobreescribía siempre** los valores explícitos de una tarea, incluso al pasar `retries = 7`. | Sistema de flags `.explicit_args`: el valor explícito en `r_task()` ahora siempre gana, con semántica similar a Airflow. |
-| 6 | `R/ui.R` | Un log `NA` se mostraba como el texto literal `"NA"` en vez de `"(no output)"`. | Los logs ausentes ahora se muestran como `"(no output)"`. |
-| 7 | `R/ui.R` | El botón **Trigger run** del dashboard bloqueaba toda la UI mientras corría el DAG. | Ejecución en segundo plano mediante `future`, con fallback síncrono cuando no hay un plan configurado o la base es `:memory:`; un único poller evita filtrar *observers*. |
+| 1 | `R/utils.R`, `R/executor.R` | The `{{ ds }}` templating was not applied correctly to `op_args`. | Added `rflow_render_args()`, which renders arguments recursively, including nested lists, before task execution. |
+| 2 | `R/executor.R`, `R/task.R` | `timeout` was stored but **never enforced**. | Implemented using `setTimeLimit()`. Documented that it cannot interrupt `Sys.sleep()` or blocking system/network calls—a limitation of base R. |
+| 3 | `R/scheduler.R` | An unexpected error (for example, a failed database connection) **stopped the entire scheduler loop**. | Wrapped `run_dag()` in `tryCatch` per DAG and per tick; the loop remains active and logs the error. |
+| 4 | `R/scheduler.R` | `catchup` was referenced incorrectly. | Added `.rflow_due_execution_dates()`: with `catchup = TRUE`, all missed intervals are triggered; with `FALSE`, only the most recent one is triggered. |
+| 5 | `R/dag.R` | DAG `default_args` **always overrode** explicit task values, even when passing `retries = 7`. | Added the `.explicit_args` flag system: explicit values in `r_task()` now always take precedence, with Airflow-like semantics. |
+| 6 | `R/ui.R` | An `NA` log was displayed as the literal text `"NA"` instead of `"(no output)"`. | Missing logs are now displayed as `"(no output)"`. |
+| 7 | `R/ui.R` | The dashboard’s **Trigger run** button blocked the entire UI while the DAG was running. | Added background execution via `future`, with synchronous fallback when no plan is configured or the database is `:memory:`; a single poller prevents observer leaks. |
 
-### Funcionalidad nueva
+### New Features
 
-| # | Archivo(s) | Qué agrega |
+| # | File(s) | Added functionality |
 | --- | --- | --- |
-| 8 | `R/task.R` | `on_success_callback` y `on_failure_callback` en `r_task()`: hooks para notificaciones o alertas, con manejo propio de errores. |
-| 9 | `R/db.R` | `rflow_db_connect()` ahora acepta una `DBIConnection` ya abierta (Postgres, MySQL, etc.), no solo una ruta de SQLite. |
-| 10 | `R/db.R` | `INSERT OR REPLACE` (específico de SQLite) se reemplazó por `INSERT ... ON CONFLICT ... DO UPDATE`, una sintaxis SQL estándar. |
+| 8 | `R/task.R` | `on_success_callback` and `on_failure_callback` in `r_task()`: hooks for notifications or alerts, with their own error handling. |
+| 9 | `R/db.R` | `rflow_db_connect()` now accepts an already-open `DBIConnection` (Postgres, MySQL, etc.), not just a SQLite path. |
+| 10 | `R/db.R` | Replaced SQLite-specific `INSERT OR REPLACE` with standard `INSERT ... ON CONFLICT ... DO UPDATE` syntax. |
 
-### Cambios generales en la librería
+### General Library Changes
 
-Cambios detectados al ejecutar `R CMD check --as-cran`.
+Changes identified while running `R CMD check --as-cran`.
 
-| # | Archivo(s) | Corrección |
+| # | File(s) | Fix |
 | --- | --- | --- |
-| 11 | `DESCRIPTION` | Se eliminó la dependencia `digest`, declarada pero nunca usada. |
-| 12 | `R/dag.R` | Se añadieron los `importFrom` faltantes de `setNames` (`stats`) y `modifyList` (`utils`). |
-| 13 | `R/executor.R` | Se corrigió el falso positivo de variable global causado por `textConnection("log_capture", ...)`. |
-| 14 | `DESCRIPTION` | `License: MIT` ahora incluye `+ file LICENSE`; además, la descripción ya no comienza con el nombre del paquete. |
-| 15 | `R/executor.R` | Se documentó el parámetro `run_type` de `run_dag()`. |
-| 16 | `.Rbuildignore` | Se añadieron `.github/` y `examples/`, que generaban NOTEs al construir el paquete. |
-| 17 | `NEWS.md` | Se creó el archivo y se dejó en un formato parseable. |
+| 11 | `DESCRIPTION` | Removed the unused `digest` dependency. |
+| 12 | `R/dag.R` | Added missing `importFrom` declarations for `setNames` (`stats`) and `modifyList` (`utils`). |
+| 13 | `R/executor.R` | Fixed the false-positive global-variable warning caused by `textConnection("log_capture", ...)`. |
+| 14 | `DESCRIPTION` | `License: MIT` now includes `+ file LICENSE`; the description no longer starts with the package name. |
+| 15 | `R/executor.R` | Documented the `run_type` parameter of `run_dag()`. |
+| 16 | `.Rbuildignore` | Added `.github/` and `examples/`, which generated NOTES during package checks. |
+| 17 | `NEWS.md` | Created the file using a parseable format. |
 
-### Nuevas pruebas unitarias
+### New Unit Tests
 
-- **24 pruebas nuevas**: de 20 a 44.
-  - `tests/testthat/test-executor-fixes.R`: templating, timeout, `default_args` y callbacks.
-  - `tests/testthat/test-scheduler-fixes.R`: catchup y resiliencia ante errores.
-  - `tests/testthat/test-db-fixes.R`: conexión externa y *upsert* portable.
-- `.github/workflows/R-CMD-check.yaml`: ejecuta `R CMD check` en Linux, macOS y Windows, con dos versiones de R.
-- `.github/workflows/test-coverage.yaml`: mide cobertura con `covr` y la publica en Codecov.
+- **24 new tests**: increased from 20 to 44.
+  - `tests/testthat/test-executor-fixes.R`: templating, timeout, `default_args`, and callbacks.
+  - `tests/testthat/test-scheduler-fixes.R`: catchup behavior and error resilience.
+  - `tests/testthat/test-db-fixes.R`: external connections and portable upserts.
+- `.github/workflows/R-CMD-check.yaml`: runs `R CMD check` on Linux, macOS, and Windows, using two R versions.
+- `.github/workflows/test-coverage.yaml`: measures coverage with `covr` and publishes it to Codecov.
