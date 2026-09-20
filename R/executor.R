@@ -21,14 +21,19 @@
 
   while (attempt < max_tries) {
     attempt <- attempt + 1
+    log_capture <- NULL  # populated as a side effect of the textConnection() below
     tc <- textConnection("log_capture", "w", local = TRUE)
     sink(tc, split = FALSE)
     result <- NULL
     ok <- TRUE
     t0 <- Sys.time()
     err_msg <- NA_character_
+    if (!is.null(task$timeout)) {
+      on.exit(setTimeLimit(cpu = Inf, elapsed = Inf, transient = TRUE), add = TRUE)
+      setTimeLimit(elapsed = task$timeout, transient = TRUE)
+    }
     tryCatch({
-      call_args <- task$op_args
+      call_args <- rflow_render_args(task$op_args, context)
       fmls <- names(formals(task$func))
       if ("context" %in% fmls) call_args$context <- context
       result <- do.call(task$func, call_args)
@@ -36,6 +41,7 @@
       ok <<- FALSE
       err_msg <<- conditionMessage(e)
     })
+    if (!is.null(task$timeout)) setTimeLimit(cpu = Inf, elapsed = Inf, transient = TRUE)
     sink()
     close(tc)
     log_lines <- c(log_lines, sprintf("[attempt %d/%d] %s", attempt, max_tries, format(t0)),
@@ -60,6 +66,17 @@
        log = paste(log_lines, collapse = "\n"))
 }
 
+#' @keywords internal
+.run_callback <- function(callback, context, payload) {
+  tryCatch(
+    callback(context, payload),
+    error = function(e) {
+      warning("rflow: callback raised an error and was ignored: ", conditionMessage(e), call. = FALSE)
+    }
+  )
+  invisible(NULL)
+}
+
 #' Execute a DAG once (a "DAG run"), analogous to `airflow dags trigger`
 #'
 #' Runs every task in dependency order, honoring retries, `trigger_rule`s, and
@@ -80,6 +97,9 @@
 #' @param conf Optional named list of extra config, merged into the template
 #'   context and stored alongside the dag_run row.
 #' @param verbose Print a live progress summary to the console (default TRUE).
+#' @param run_type Free-text label stored on the dag_run row, e.g. `"manual"`
+#'   (the default, used by [trigger_dag()]) or `"scheduled"` (used
+#'   internally by [scheduler_run()]/[backfill()]). Purely informational.
 #' @return An invisible list with `run_id`, `state` ("success"/"failed"),
 #'   `results` (named list of task return values), and `task_instances`
 #'   (a data.frame summary of every task's outcome).
@@ -111,9 +131,13 @@ run_dag <- function(dag, execution_date = Sys.time(), executor = c("sequential",
     }
     ctx <- rflow_macro_context(execution_date, dag_id = dag$dag_id, task_id = task_id, run_id = run_id,
                                 extra = c(list(ti = results), conf))
-    task_rendered <- task
     out <- .run_single_task(task, ctx, results)
     out$task_id <- task_id
+    if (identical(out$state, "success") && is.function(task$on_success_callback)) {
+      .run_callback(task$on_success_callback, ctx, out$result)
+    } else if (identical(out$state, "failed") && is.function(task$on_failure_callback)) {
+      .run_callback(task$on_failure_callback, ctx, out$error)
+    }
     out
   }
 

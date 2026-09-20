@@ -4,13 +4,21 @@
 #' rows so that run history, states, retries, durations, and XCom-like return
 #' values survive across R sessions.
 #'
-#' @param path File path for the SQLite database. Defaults to `rflow.db` in
-#'   the current working directory. Use `":memory:"` for an ephemeral DB.
+#' @param path File path for the SQLite database, or an already-open
+#'   `DBIConnection` to any DBI-compliant backend (e.g. Postgres via
+#'   `RPostgres::Postgres()`, MySQL via `RMariaDB::MariaDB()`). rflow's schema
+#'   and queries only use standard SQL (including the `ON CONFLICT` upsert
+#'   syntax supported by SQLite >= 3.24, Postgres, and MySQL 8+), so passing
+#'   your own connection lets rflow's metadata tables live in a shared,
+#'   concurrent-friendly database instead of a local SQLite file -- useful
+#'   once more than one process needs to read/write run state at once.
+#'   Defaults to `rflow.db` in the current working directory when omitted.
+#'   Use `":memory:"` for an ephemeral SQLite DB.
 #' @return A `DBIConnection`.
 #' @export
 rflow_db_connect <- function(path = "rflow.db") {
-  con <- DBI::dbConnect(RSQLite::SQLite(), path)
-  DBI::dbExecute(con, "PRAGMA foreign_keys = ON;")
+  con <- if (inherits(path, "DBIConnection")) path else DBI::dbConnect(RSQLite::SQLite(), path)
+  if (inherits(con, "SQLiteConnection")) DBI::dbExecute(con, "PRAGMA foreign_keys = ON;")
   rflow_db_init(con)
   con
 }
@@ -61,9 +69,17 @@ rflow_db_init <- function(con) {
 #' @keywords internal
 db_insert_dag_run <- function(con, run_id, dag_id, execution_date, state = "running",
                                run_type = "manual", conf = list()) {
-  DBI::dbExecute(con, "INSERT OR REPLACE INTO dag_run
+  # Standard SQL upsert (ON CONFLICT ... DO UPDATE) instead of SQLite-specific
+  # "INSERT OR REPLACE", so the same query works against SQLite (>= 3.24),
+  # Postgres, and MySQL 8+ when rflow_db_connect() is given a non-SQLite
+  # DBIConnection.
+  DBI::dbExecute(con, "INSERT INTO dag_run
       (run_id, dag_id, execution_date, state, start_date, end_date, run_type, conf)
-      VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
+      VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+      ON CONFLICT (run_id) DO UPDATE SET
+        dag_id = excluded.dag_id, execution_date = excluded.execution_date,
+        state = excluded.state, start_date = excluded.start_date,
+        end_date = excluded.end_date, run_type = excluded.run_type, conf = excluded.conf",
     params = list(run_id, dag_id, as.character(execution_date), state,
                   as.character(Sys.time()), run_type, .db_escape_conf(conf)))
   invisible(run_id)

@@ -11,6 +11,25 @@
 #' @param ... Passed through to `shiny::runApp()` (e.g. `port =`, `launch.browser =`).
 #' @return Does not return; runs the Shiny app (blocking) or, in non-interactive
 #'   test contexts, returns the `shiny.appobj` invisibly without launching it.
+#'
+#' @section Triggering runs from the dashboard:
+#' Clicking "Trigger run" launches the DAG run through the `future` package
+#' so the dashboard UI stays responsive while it executes, as long as (a)
+#' `con` points to an on-disk SQLite file (not `":memory:"`, which can't be
+#' shared across processes) and (b) you set a background `future::plan()`
+#' (e.g. `future::plan(future::multisession)`) before calling `rflow_ui()`;
+#' otherwise it falls back to running synchronously, exactly like before.
+#' Two things worth knowing if you use a background plan:
+#' * With `multisession`, each worker is a fresh R process that runs
+#'   `library(rflow)` -- so rflow must be a properly *installed* package
+#'   (`R CMD INSTALL` / `install.packages()` / `devtools::install()`), not
+#'   just loaded via `devtools::load_all()`, or the worker will fail with
+#'   "there is no package called 'rflow'". On Unix, `future::plan(future::multicore)`
+#'   forks the current process instead and sidesteps this entirely.
+#' * The very first `future()` call under a freshly created plan pays a
+#'   one-off worker-startup cost, so the *first* "Trigger run" click after
+#'   opening the dashboard may still feel blocking; every click after that
+#'   reuses the warm worker and is genuinely asynchronous.
 #' @export
 rflow_ui <- function(dags = NULL, con = rflow_db_connect("rflow.db"), ...) {
   if (!requireNamespace("shiny", quietly = TRUE)) {
@@ -112,6 +131,8 @@ rflow_ui <- function(dags = NULL, con = rflow_db_connect("rflow.db"), ...) {
   server <- function(input, output, session) {
     selected_dag_id <- shiny::reactiveVal(names(dags)[1])
     refresh_tick <- shiny::reactiveVal(0)
+    running <- shiny::reactiveVal(FALSE)
+    pending_future <- NULL
 
     lapply(names(dags), function(id) {
       shiny::observeEvent(input[[paste0("select_", id)]], selected_dag_id(id))
@@ -192,20 +213,76 @@ rflow_ui <- function(dags = NULL, con = rflow_db_connect("rflow.db"), ...) {
       if (is.null(st)) return(NULL)
       logs <- DBI::dbGetQuery(con, "SELECT task_id, log FROM task_instance WHERE run_id = ?", params = list(st$run_id))
       shiny::tagList(lapply(seq_len(nrow(logs)), function(i) {
+        log_text <- logs$log[i]
+        if (is.null(log_text) || is.na(log_text) || !nzchar(log_text)) log_text <- "(no output)"
         shiny::tags$details(
           shiny::tags$summary(logs$task_id[i]),
-          shiny::tags$div(class = "rflow-log", logs$log[i] %||% "(no output)")
+          shiny::tags$div(class = "rflow-log", log_text)
         )
       }))
     })
 
+    # DB file path backing `con`, so a background worker can open its own
+    # connection to the same SQLite file instead of sharing the live
+    # DBIConnection object across processes (which is not valid). NULL for
+    # ":memory:" or connection types we can't introspect -- in that case we
+    # fall back to running synchronously below.
+    db_path <- tryCatch({
+      p <- con@dbname
+      if (identical(p, ":memory:")) NULL else p
+    }, error = function(e) NULL)
+
     shiny::observeEvent(input$trigger_btn, {
+      if (isTRUE(running())) {
+        shiny::showNotification("A run is already in progress for this DAG.", type = "warning")
+        return(invisible(NULL))
+      }
       d <- current_dag()
       shiny::showNotification(sprintf("Triggering '%s'...", d$dag_id), type = "message", duration = 2)
-      tryCatch({
-        run_dag(d, con = con, verbose = FALSE)
-      }, error = function(e) {
-        shiny::showNotification(sprintf("Run failed to launch: %s", conditionMessage(e)), type = "error")
+
+      if (is.null(db_path) || !requireNamespace("future", quietly = TRUE)) {
+        # No shareable on-disk DB, or `future` unavailable: run synchronously
+        # (blocks this session, same as before) rather than silently failing.
+        tryCatch(run_dag(d, con = con, verbose = FALSE), error = function(e) {
+          shiny::showNotification(sprintf("Run failed: %s", conditionMessage(e)), type = "error")
+        })
+        refresh_tick(refresh_tick() + 1)
+        return(invisible(NULL))
+      }
+
+      running(TRUE)
+      # Runs in the background per the caller's future::plan() (e.g.
+      # future::multisession) so the dashboard stays responsive; with the
+      # default "sequential" plan this still executes inline. The worker
+      # opens its own connection to the same SQLite file rather than reusing
+      # `con`, since DBIConnections cannot cross process boundaries. Note:
+      # the very first future() call under a fresh multisession/multicore
+      # plan pays a one-off worker-startup cost (spinning up an R process),
+      # so the first "Trigger run" click after launching the dashboard may
+      # feel as blocking as before; subsequent clicks reuse the warm worker
+      # and are genuinely async.
+      pending_future <<- future::future({
+        worker_con <- rflow_db_connect(db_path)
+        on.exit(DBI::dbDisconnect(worker_con), add = TRUE)
+        run_dag(d, con = worker_con, verbose = FALSE)
+      }, seed = TRUE)
+    })
+
+    # Single long-lived poller (created once, not per click) that checks
+    # whether a background run has finished; avoids leaking a new observer
+    # on every "Trigger run" click.
+    # Single long-lived poller (created once, not per click) that checks
+    # whether a background run has finished; avoids leaking a new observer
+    # on every "Trigger run" click.
+    shiny::observe({
+      if (!isTRUE(running())) return(invisible(NULL))
+      shiny::invalidateLater(500, session)
+      if (is.null(pending_future) || !future::resolved(pending_future)) return(invisible(NULL))
+      f <- pending_future
+      pending_future <<- NULL
+      running(FALSE)
+      tryCatch(future::value(f), error = function(e) {
+        shiny::showNotification(sprintf("Run failed: %s", conditionMessage(e)), type = "error")
       })
       refresh_tick(refresh_tick() + 1)
     })

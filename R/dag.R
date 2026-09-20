@@ -1,3 +1,8 @@
+#' @importFrom R6 R6Class
+#' @importFrom stats setNames
+#' @importFrom utils modifyList
+NULL
+
 .rflow_env <- new.env(parent = emptyenv())
 .rflow_env$active_dag_stack <- list()
 .rflow_env$registry <- new.env(parent = emptyenv())  # dag_id -> DAG
@@ -55,14 +60,20 @@ DAG <- R6::R6Class("DAG",
     },
 
     #' @description Register a Task under this DAG (called by [r_task()]).
+    #'   `self$default_args` fills in only the task fields the caller did
+    #'   *not* set explicitly in [r_task()] -- an explicit per-task value
+    #'   always wins over the DAG's `default_args`, mirroring Airflow.
     add_task = function(task) {
       if (exists(task$task_id, envir = self$tasks, inherits = FALSE)) {
         stop("rflow: task_id '", task$task_id, "' already exists in DAG '", self$dag_id, "'")
       }
       task$dag <- self
+      overridable <- c("retries", "retry_delay", "timeout", "trigger_rule",
+                        "on_success_callback", "on_failure_callback")
       if (length(self$default_args) > 0) {
         for (nm in names(self$default_args)) {
-          if (nm %in% c("retries", "retry_delay", "timeout", "trigger_rule")) {
+          explicit <- isTRUE(task$.explicit_args[[nm]])
+          if (nm %in% overridable && !explicit) {
             task[[nm]] <- self$default_args[[nm]]
           }
         }

@@ -25,6 +25,27 @@ rflow_render <- function(text, context = list()) {
   out
 }
 
+#' Recursively render {{ macro }} templates through a nested list of op_args
+#'
+#' Walks a (possibly nested) list of task `op_args` and applies
+#' [rflow_render()] to every character element, leaving non-character
+#' elements untouched. This is what makes `{{ ds }}`-style macros actually
+#' get substituted into task arguments before the task function runs.
+#'
+#' @param args A named list (typically a `Task`'s `op_args`).
+#' @param context A named list as produced by [rflow_macro_context()].
+#' @return The same structure as `args`, with character values rendered.
+#' @keywords internal
+rflow_render_args <- function(args, context = list()) {
+  if (is.character(args)) {
+    return(vapply(args, rflow_render, character(1), context = context, USE.NAMES = FALSE))
+  }
+  if (is.list(args)) {
+    return(lapply(args, rflow_render_args, context = context))
+  }
+  args
+}
+
 #' Build the templating context for a given execution date
 #'
 #' Produces the named list (`ds`, `ds_nodash`, `ts`, `execution_date`, `dag_id`,
